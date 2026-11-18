@@ -1,19 +1,55 @@
-name: CI
+name: Build VSIX
+
 on:
   push:
-    branches: [ master,webpack ]
+    branches: [main]
   pull_request:
-    branches: [ master,webpack ]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vsix-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
+    name: Build and package extension
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      # webpack 4 relies on legacy OpenSSL hashing on modern Node.js.
+      NODE_OPTIONS: --openssl-legacy-provider
+
     steps:
-    - uses: actions/checkout@v2
-    - uses: actions/setup-node@v1
-      with:
-        node-version: 14.x
-    - run: npm i
-    - run: |
-        echo ">>> Start compile vscode-mysql."
-        npm run build
-        echo ">>> Compile vscode-mysql sucess!"
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          package-manager-cache: false
+
+      - name: Install dependencies
+        # This repository has no package-lock.json and uses legacy Vue 2/webpack 4.
+        run: npm install --legacy-peer-deps --no-audit --no-fund
+
+      - name: Build extension
+        run: npm run build
+
+      - name: Package VSIX
+        run: |
+          mkdir -p dist
+          npx --yes @vscode/vsce@4.1.1 package --no-dependencies --out dist/vscode-database-client-3.9.8.vsix
+          test -s dist/vscode-database-client-3.9.8.vsix
+
+      - name: Upload VSIX artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: vscode-database-client-vsix-${{ github.run_number }}
+          path: dist/*.vsix
+          if-no-files-found: error
+          retention-days: 30
